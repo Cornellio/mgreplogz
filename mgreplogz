@@ -1,0 +1,70 @@
+#!/bin/bash
+
+
+log_root_path="/var/log/tomcat"
+
+parse_args () {
+  while getopts "h:f:d:" option; do
+    case $option in
+      h)
+        hosts=$OPTARG
+        shift "$((OPTIND - 1))"
+        ;;
+      f)
+        file_list=$OPTARG
+        shift "$((OPTIND - 1))"
+        ;;
+      d)
+        date=$OPTARG
+        shift "$((OPTIND - 1))"
+        ;;
+      ?) echo_usage ;;
+    esac
+    shift "$((OPTIND - 1))"
+    search_pattern="$1"
+  done
+}
+
+pre_flight () {
+
+  current_date=$( date +%Y-%m-%d )
+  search_date=${date:-$current_date}
+
+  if ! [ -f $file_list ]; then
+    echo "${file_list} not found."
+    echo_usage
+  fi
+  if ! [[ $search_date =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    echo "bad date format."
+    echo_usage
+  fi
+  if ! [[ $hosts ]]; then
+    echo "no hosts given."
+    echo_usage
+  fi
+  if ! [[ $search_pattern ]]; then
+    echo "no search pattern given."
+    echo_usage
+  fi
+}
+
+search_logz () {
+
+  local search_path="$log_root_path/$search_date/*"
+  local remote_cmd="zgrep ${search_pattern} ${search_path}"
+
+  #@
+  echo $remote_cmd
+  #@
+
+}
+
+echo_usage () {
+  # add usage info
+  exit 0
+}
+
+
+parse_args "$@"
+pre_flight
+search_logz
