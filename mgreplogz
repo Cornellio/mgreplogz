@@ -1,39 +1,46 @@
 #!/bin/bash
+#
+# Basic utility for searching Tomcat server logs that provides:
+# - looping through multiple servers
+# - searching compressed log files (using zgrep)
+# - searching subdirectories by given date
+#
+# By Pete Cornell, 2017 - http://github.com/cornellio/
 
+GREP="/usr/bin/zgrep"
+GREP_OPTS="-i -n"
+SSH="/usr/bin/ssh"
+SSH_OPTS="-o StrictHostKeyChecking=no"
+LOG_PATH="/var/log/tomcat"
+OUTPUT_FILE_PREFIX="log_search_output"
 
-log_root_path="/var/log/tomcat"
+CURRENT_DATE=$( date +%Y-%m-%d )
+CURRENT_TIME=$( date +%H%M )
+OUTPUT_FILE=~/${OUTPUT_FILE_PREFIX}_${CURRENT_DATE}_${CURRENT_TIME}
 
 parse_args () {
-  while getopts "h:f:d:" option; do
+  local OPTIND=1
+  while getopts o:h:d:l:f: option; do
     case $option in
-      h)
-        hosts=$OPTARG
-        shift "$((OPTIND - 1))"
-        ;;
-      f)
-        file_list=$OPTARG
-        shift "$((OPTIND - 1))"
-        ;;
-      d)
-        date=$OPTARG
-        shift "$((OPTIND - 1))"
-        ;;
-      ?) echo_usage ;;
+      o) output_file=$OPTARG ;;
+      h) hosts=$OPTARG ;;
+      d) date=$OPTARG ;;
+      l) login=$OPTARG ;;
+      f) search_file=$OPTARG ;;
+      *) echo_usage ;;
     esac
-    shift "$((OPTIND - 1))"
-    search_pattern="$1"
   done
+  shift "$((OPTIND-1))"
+  search_pattern="$1"
 }
 
 pre_flight () {
 
-  current_date=$( date +%Y-%m-%d )
-  search_date=${date:-$current_date}
+  # Do basic validation and variable assignment
+  search_date=${date:-$CURRENT_DATE}
+  output_file=${output_file:-$OUTPUT_FILE}
+  login=${login:-$USER}
 
-  if ! [ -f $file_list ]; then
-    echo "${file_list} not found."
-    echo_usage
-  fi
   if ! [[ $search_date =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
     echo "bad date format."
     echo_usage
@@ -50,21 +57,41 @@ pre_flight () {
 
 search_logz () {
 
-  local search_path="$log_root_path/$search_date/*"
-  local remote_cmd="zgrep ${search_pattern} ${search_path}"
+  local search_path="${LOG_PATH}/${search_date}"
+  local search_file=${search_file:-*}
+  local remote_cmd="${GREP} ${GREP_OPTS} ${search_pattern} ${search_path}/${search_file}"
 
-  #@
-  echo $remote_cmd
-  #@
+  echo "Searching hosts: ${hosts}"
+  echo "Search pattern: ${search_pattern} ${search_path}/${search_file}"
+  echo "Writing results to: ${output_file}"
 
+  for host in $hosts; do
+
+    printf "\n...${host} "
+    printf "\n# Host: ${host}\n# Search pattern: ${search_pattern} \n# Search path: ${search_path}\n\n" >> ${output_file}
+
+    $SSH $SSH_OPTS ${login}@${host} ${remote_cmd} >> ${output_file}
+
+  done
 }
 
 echo_usage () {
-  # add usage info
-  exit 0
+  cat <<- EOM
+
+  USAGE:
+  $(basename $0) [-h "hosts"] [-f file_pattern] [-d date] search_expression
+
+  PARAMETERS:
+  -h  list of hosts to search, space separated, enclosed in quotes
+  -f  file name pattern to search, if none specified all files will be searched
+  -d  date to search, using YYYY-MM-DD format, defaults to today\'s date
+  -l  login name to use for ssh connections, defaults to \$USER
+  -o  output file to write results to
+EOM
+exit
 }
 
-
+# Main section
 parse_args "$@"
 pre_flight
 search_logz
